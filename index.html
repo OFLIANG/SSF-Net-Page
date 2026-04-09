@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSF-Net: 基于光谱角感知的空间光谱融合网络 - 深度解析</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Noto Sans SC"', '"Inter"', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#4F46E5',
+                        secondary: '#7C3AED',
+                        accent: '#10B981',
+                        dark: '#1E293B',
+                        light: '#F8FAFC',
+                    },
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-20px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body { 
+            font-family: 'Noto Sans SC', 'Inter', sans-serif; 
+            background-color: #F8FAFC;
+            overflow-x: hidden;
+        }
+        
+        .highlight {
+            position: relative;
+            display: inline-block;
+            font-weight: 600;
+            color: #4F46E5;
+            cursor: help;
+            padding-bottom: 2px;
+        }
+        .highlight::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 30%;
+            bottom: 0;
+            left: 0;
+            background-color: rgba(79, 70, 229, 0.2);
+            z-index: -1;
+            transition: height 0.3s ease;
+        }
+        .highlight:hover::after { 
+            height: 100%; 
+            background-color: rgba(79, 70, 229, 0.3);
+        }
+        
+        .fade-in-up {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+        }
+        .fade-in-up.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .delay-100 { transition-delay: 0.1s; }
+        .delay-200 { transition-delay: 0.2s; }
+        .delay-300 { transition-delay: 0.3s; }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        }
+        
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+                        padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .accordion-content.open {
+            max-height: 800px;
+        }
+        
+        .accordion-icon {
+            transition: transform 0.3s ease;
+        }
+        .accordion-icon.rotate {
+            transform: rotate(180deg);
+        }
+        
+        .hover-lift {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .hover-lift:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+        }
+        
+        .math-formula {
+            background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+            color: #E2E8F0;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+        
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .results-table th {
+            background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
+        .results-table td {
+            padding: 0.875rem 1rem;
+            text-align: center;
+            border-bottom: 1px solid #E2E8F0;
+        }
+        .results-table tr:nth-child(even) {
+            background-color: #F8FAFC;
+        }
+        .results-table tr.highlighted {
+            background-color: #EEF2FF;
+            font-weight: 600;
+        }
+        .results-table tr:hover {
+            background-color: #E0E7FF;
+        }
+        
+        @media (max-width: 768px) {
+            .hero-title {
+                font-size: 2rem !important;
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased selection:bg-indigo-200 selection:text-indigo-900">
+    <!-- Navigation -->
+    <nav class="fixed w-full z-50 glass-card bg-white/90 transition-all duration-300 shadow-sm" id="navbar">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex-shrink-0 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                        <i class="fa-solid fa-satellite text-white text-xl"></i>
+                    </div>
+                    <span class="font-bold text-xl text-dark tracking-tight">SSF-Net 深度解析</span>
+                </div>
+                
+                <div class="hidden md:flex space-x-8">
+                    <a href="#hero" class="nav-link relative text-slate-600 hover:text-primary font-medium transition py-2">首页</a>
+                    <a href="#background" class="nav-link relative text-slate-600 hover:text-primary font-medium transition py-2">研究背景</a>
+                    <a href="#architecture" class="nav-link relative text-slate-600 hover:text-primary font-medium transition py-2">系统架构</a>
+                    <a href="#modules" class="nav-link relative text-slate-600 hover:text-primary font-medium transition py-2">核心模块</a>
+                    <a href="#experiments" class="nav-link relative text-slate-600 hover:text-primary font-medium transition py-2">实验结果</a>
+                    <a href="#conclusion" class="nav-link relative text-slate-600 hover:text-primary font-medium transition py-2">总结展望</a>
+                    <a href="光谱融合详解.html" class="nav-link relative text-white bg-gradient-to-r from-purple-500 to-indigo-600 px-4 py-2 rounded-lg font-medium transition hover:shadow-lg hover:scale-105" target="_blank">
+                        <i class="fa-solid fa-book-open mr-2"></i>基础知识
+                    </a>
+                </div>
+                
+                <div class="md:hidden flex items-center">
+                    <button id="mobile-menu-btn" class="text-slate-600 hover:text-primary focus:outline-none p-2">
+                        <i class="fa-solid fa-bars text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="mobile-menu" class="hidden md:hidden bg-white border-t border-gray-100 shadow-lg">
+            <div class="px-4 pt-2 pb-4 space-y-1">
+                <a href="#hero" class="block px-4 py-3 text-slate-600 hover:bg-indigo-50 hover:text-primary rounded-lg transition">首页</a>
+                <a href="#background" class="block px-4 py-3 text-slate-600 hover:bg-indigo-50 hover:text-primary rounded-lg transition">研究背景</a>
+                <a href="#architecture" class="block px-4 py-3 text-slate-600 hover:bg-indigo-50 hover:text-primary rounded-lg transition">系统架构</a>
+                <a href="#modules" class="block px-4 py-3 text-slate-600 hover:bg-indigo-50 hover:text-primary rounded-lg transition">核心模块</a>
+                <a href="#experiments" class="block px-4 py-3 text-slate-600 hover:bg-indigo-50 hover:text-primary rounded-lg transition">实验结果</a>
+                <a href="#conclusion" class="block px-4 py-3 text-slate-600 hover:bg-indigo-50 hover:text-primary rounded-lg transition">总结展望</a>
+                <a href="光谱融合详解.html" class="block px-4 py-3 mt-2 text-center text-white bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg font-medium transition hover:shadow-lg" target="_blank">
+                    <i class="fa-solid fa-book-open mr-2"></i>基础知识
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="hero" class="pt-32 pb-20 md:pt-40 md:pb-28 px-4 relative overflow-hidden bg-gradient-to-br from-indigo-50 via-white to-violet-50">
+        <div class="absolute inset-0 z-0 opacity-15">
+            <svg class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <pattern id="grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width="0.5" class="text-indigo-300"></path>
+                    </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid-pattern)"></rect>
+            </svg>
+        </div>
+        
+        <div class="absolute top-20 left-10 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-float"></div>
+        <div class="absolute top-40 right-10 w-72 h-72 bg-indigo-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-float" style="animation-delay: 2s;"></div>
+        <div class="absolute -bottom-8 left-1/2 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-float" style="animation-delay: 4s;"></div>
+        
+        <div class="max-w-5xl mx-auto relative z-10 text-center fade-in-up">
+            <div class="inline-block px-5 py-2 rounded-full bg-indigo-100 text-indigo-800 text-sm font-semibold tracking-wide mb-6 shadow-sm">
+                <i class="fa-solid fa-file-lines mr-2"></i>arXiv:2403.05852v2 [cs.CV] · 计算机视觉前沿研究
+            </div>
+            
+            <h1 class="hero-title text-4xl md:text-5xl lg:text-6xl font-black text-dark leading-tight mb-6">
+                基于<span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">光谱角感知</span>的<br class="hidden md:block">
+                空间光谱融合网络
+            </h1>
+            
+            <p class="text-lg md:text-xl text-slate-600 mb-8 max-w-3xl mx-auto leading-relaxed">
+                SSF-Net: Spatial-Spectral Fusion Network with Spectral Angle Awareness for Hyperspectral Object Tracking
+            </p>
+            
+            <p class="text-base md:text-lg text-slate-500 mb-10 max-w-2xl mx-auto">
+                突破传统 RGB 视觉追踪瓶颈,创新性结合<span class="highlight" data-tooltip="Spatial Features: 物体的形状、纹理、边缘等视觉信息">空间纹理</span>与<span class="highlight" data-tooltip="Spectral Features: 物体在不同波段的反射率特征,反映物质成分">高光谱材质</span>特征
+            </p>
+            
+            <div class="mb-10 p-6 glass-card rounded-2xl max-w-2xl mx-auto">
+                <p class="text-sm text-slate-600 mb-2 font-medium">Authors:</p>
+                <p class="text-slate-800">
+                    <span class="font-semibold">Hanzheng Wang</span>, 
+                    <span class="font-semibold text-primary">Wei Li*</span>, 
+                    <span class="font-semibold">Xiang-Gen Xia</span>, 
+                    <span class="font-semibold">Qian Du</span>, 
+                    <span class="font-semibold">Jing Tian</span>
+                </p>
+                <p class="text-xs text-slate-500 mt-2">Beihang University · University of Delaware · Mississippi State University</p>
+            </div>
+            
+            <div class="grid grid-cols-3 gap-4 md:gap-8 max-w-3xl mx-auto mb-10">
+                <div class="glass-card p-4 md:p-6 rounded-2xl hover-lift">
+                    <div class="text-3xl md:text-4xl font-black text-primary mb-2">0.680</div>
+                    <div class="text-xs md:text-sm text-slate-600 font-medium">AUC Score</div>
+                    <div class="text-xs text-slate-500 mt-1">HOTC-2020</div>
+                </div>
+                <div class="glass-card p-4 md:p-6 rounded-2xl hover-lift">
+                    <div class="text-3xl md:text-4xl font-black text-secondary mb-2">0.939</div>
+                    <div class="text-xs md:text-sm text-slate-600 font-medium">DP₂₀</div>
+                    <div class="text-xs text-slate-500 mt-1">Precision Rate</div>
+                </div>
+                <div class="glass-card p-4 md:p-6 rounded-2xl hover-lift">
+                    <div class="text-3xl md:text-4xl font-black text-accent mb-2">13.05</div>
+                    <div class="text-xs md:text-sm text-slate-600 font-medium">FPS</div>
+                    <div class="text-xs text-slate-500 mt-1">Real-time Speed</div>
+                </div>
+            </div>
+            
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <a href="#background" class="px-8 py-4 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-bold text-lg hover:shadow-lg hover:shadow-indigo-500/30 transition-all duration-300 flex items-center justify-center group">
+                    开始探索原理 <i class="fa-solid fa-arrow-down ml-2 group-hover:animate-bounce"></i>
+                </a>
+                <a href="#experiments" class="px-8 py-4 bg-white text-primary border-2 border-primary rounded-xl font-bold text-lg hover:bg-indigo-50 transition-all duration-300 flex items-center justify-center">
+                    查看实验数据 <i class="fa-solid fa-chart-line ml-2"></i>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Research Background -->
+    <section id="background" class="py-20 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- 基础知识引导提示框 -->
+            <div class="mb-12 fade-in-up">
+                <div class="bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 rounded-2xl p-8 border-2 border-indigo-200 shadow-lg">
+                    <div class="flex flex-col md:flex-row items-center gap-6">
+                        <div class="flex-shrink-0">
+                            <div class="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                <i class="fas fa-book-open text-white text-3xl"></i>
+                            </div>
+                        </div>
+                        <div class="flex-1 text-center md:text-left">
+                            <h3 class="text-2xl font-bold text-gray-800 mb-2">
+                                <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>新手入门指南
+                            </h3>
+                            <p class="text-gray-700 mb-4">
+                                如果您对高光谱成像、光谱融合等概念还不熟悉，我们建议您先阅读基础知识详解，这将帮助您更好地理解 SSF-Net 的设计原理。
+                            </p>
+                            <a href="光谱融合详解.html" class="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-6 py-3 rounded-lg font-bold transition hover:shadow-xl hover:scale-105" target="_blank">
+                                <i class="fas fa-arrow-right mr-2"></i>学习光谱融合基础知识
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center mb-16 fade-in-up">
+                <h2 class="text-3xl md:text-4xl font-bold text-dark mb-4">为什么我们需要高光谱目标跟踪?</h2>
+                <div class="w-24 h-1.5 bg-gradient-to-r from-primary to-secondary mx-auto rounded-full"></div>
+                <p class="mt-6 text-slate-600 max-w-3xl mx-auto text-lg">从传统RGB到高光谱,视觉追踪技术的演进之路</p>
+            </div>
+
+            <div class="grid lg:grid-cols-2 gap-12 items-start">
+                <div class="space-y-6 fade-in-up delay-100">
+                    <div class="p-6 bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl border-2 border-red-100 hover:border-red-300 transition-all duration-300 hover-lift">
+                        <div class="flex items-start gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                                <i class="fa-solid fa-triangle-exclamation text-red-600 text-2xl"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h3 class="text-xl font-bold text-red-700 mb-3">传统 RGB 追踪的根本局限</h3>
+                                <ul class="space-y-2 text-slate-700">
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-xmark text-red-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>光照敏感:</strong>光线变化导致颜色失真,目标外观剧烈改变</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-xmark text-red-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>遮挡脆弱:</strong>部分遮挡后难以重新捕获目标</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-xmark text-red-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>背景混淆:</strong>相似颜色和纹理的背景造成严重干扰</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-xmark text-red-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>伪装失效:</strong>无法区分视觉上相同但材质不同的物体</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-6 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl border-2 border-emerald-100 hover:border-emerald-300 transition-all duration-300 hover-lift">
+                        <div class="flex items-start gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                                <i class="fa-solid fa-eye text-emerald-600 text-2xl"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h3 class="text-xl font-bold text-emerald-700 mb-3">高光谱成像的独特优势</h3>
+                                <ul class="space-y-2 text-slate-700">
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-check text-emerald-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>数十至数百个连续波段:</strong>覆盖可见光到近红外范围</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-check text-emerald-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>丰富的光谱指纹:</strong>每种物质都有独特的光谱反射曲线</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-check text-emerald-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>揭示物理化学组成:</strong>识别材料本质而非表面颜色</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fa-solid fa-circle-check text-emerald-500 mt-1 mr-2 text-sm"></i>
+                                        <span><strong>抗干扰能力强:</strong>阴影、弱纹理环境下仍可稳定追踪</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-6 bg-gradient-to-br from-amber-50 to-yellow-50 rounded-2xl border-2 border-amber-100 hover:border-amber-300 transition-all duration-300 hover-lift">
+                        <div class="flex items-start gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                <i class="fa-solid fa-lightbulb text-amber-600 text-2xl"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h3 class="text-xl font-bold text-amber-700 mb-3">现有方法的不足与创新契机</h3>
+                                <p class="text-slate-700 mb-3">
+                                    大多数现有工作将高光谱图像<strong>强行压缩成3通道假彩色图</strong>,然后套用传统的RGB追踪器。这种做法存在致命缺陷:
+                                </p>
+                                <div class="bg-white/70 p-4 rounded-lg">
+                                    <p class="text-sm text-slate-600 italic">
+                                        ❌ 丢失了波段间的深层光谱关联信息<br>
+                                        ❌ 未能充分利用高光谱数据的维度优势<br>
+                                        ❌ 简单拼接多模态特征导致信息冗余
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-6 fade-in-up delay-200">
+                    <div class="relative aspect-video bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl overflow-hidden border-4 border-slate-700">
+                        <div class="absolute inset-0 flex flex-col items-center justify-center text-white p-8 z-10">
+                            <div class="grid grid-cols-2 gap-6 w-full max-w-md">
+                                <div class="text-center">
+                                    <i class="fa-solid fa-masks-theater text-5xl text-red-400 mb-3"></i>
+                                    <h4 class="text-lg font-bold mb-2">RGB视觉欺骗</h4>
+                                    <p class="text-xs text-slate-300">伪装网与树叶颜色一致<br>传统方法无法区分</p>
+                                </div>
+                                <div class="text-center">
+                                    <i class="fa-solid fa-layer-group text-5xl text-emerald-400 mb-3"></i>
+                                    <h4 class="text-lg font-bold mb-2">高光谱透视</h4>
+                                    <p class="text-xs text-slate-300">光谱反射曲线截然不同<br>精准识别材质差异</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-indigo-500/20 to-transparent"></div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-2xl">
+                        <h4 class="text-lg font-bold text-dark mb-4 flex items-center">
+                            <i class="fa-solid fa-rocket text-primary mr-2"></i>
+                            典型应用场景
+                        </h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="p-3 bg-indigo-50 rounded-lg text-center">
+                                <i class="fa-solid fa-person-military-pointing text-2xl text-primary mb-2"></i>
+                                <p class="text-xs font-medium text-slate-700">军事侦察</p>
+                            </div>
+                            <div class="p-3 bg-emerald-50 rounded-lg text-center">
+                                <i class="fa-solid fa-tree text-2xl text-emerald-600 mb-2"></i>
+                                <p class="text-xs font-medium text-slate-700">环境监测</p>
+                            </div>
+                            <div class="p-3 bg-amber-50 rounded-lg text-center">
+                                <i class="fa-solid fa-car text-2xl text-amber-600 mb-2"></i>
+                                <p class="text-xs font-medium text-slate-700">自动驾驶</p>
+                            </div>
+                            <div class="p-3 bg-rose-50 rounded-lg text-center">
+                                <i class="fa-solid fa-video text-2xl text-rose-600 mb-2"></i>
+                                <p class="text-xs font-medium text-slate-700">智能安防</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- System Architecture -->
+    <section id="architecture" class="py-20 bg-slate-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16 fade-in-up">
+                <h2 class="text-3xl md:text-4xl font-bold text-dark mb-4">SSF-Net 系统架构全景</h2>
+                <p class="text-slate-600 max-w-2xl mx-auto text-lg">就像两位探员(视觉探员与材质探员)协同办案,分别提取特征后进行深度交流,最终综合研判</p>
+                <div class="w-24 h-1.5 bg-gradient-to-r from-primary to-secondary mx-auto rounded-full mt-6"></div>
+            </div>
+
+            <div class="relative max-w-6xl mx-auto fade-in-up">
+                <div class="flex flex-col lg:flex-row gap-6 items-stretch justify-center">
+                    
+                    <div class="flex flex-col gap-4 w-full lg:w-1/5">
+                        <div class="bg-white p-5 rounded-xl shadow-md border-l-4 border-blue-500 text-center hover-lift">
+                            <i class="fa-solid fa-image text-blue-500 text-3xl mb-3"></i>
+                            <h4 class="font-bold text-lg mb-2">RGB 图像流</h4>
+                            <p class="text-sm text-slate-600">提取清晰纹理轮廓</p>
+                            <div class="mt-3 text-xs text-slate-500">Backbone: ResNet-50</div>
+                        </div>
+                        <div class="bg-white p-5 rounded-xl shadow-md border-l-4 border-indigo-500 text-center hover-lift">
+                            <i class="fa-solid fa-layer-group text-indigo-500 text-3xl mb-3"></i>
+                            <h4 class="font-bold text-lg mb-2">高光谱 (HS) 流</h4>
+                            <p class="text-sm text-slate-600">提取多维材质特征</p>
+                            <div class="mt-3 text-xs text-slate-500">Backbone: S²FB</div>
+                        </div>
+                    </div>
+
+                    <div class="hidden lg:flex items-center text-slate-300 text-3xl">
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </div>
+                    <div class="lg:hidden text-slate-300 text-3xl my-2 text-center">
+                        <i class="fa-solid fa-arrow-down"></i>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-primary to-secondary text-white p-8 rounded-2xl shadow-xl w-full lg:w-2/5 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-6 opacity-10">
+                            <i class="fa-solid fa-microchip text-8xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold mb-6 border-b border-white/30 pb-3">特征提取与融合网络</h3>
+                        <ul class="space-y-4 text-sm">
+                            <li class="flex items-start">
+                                <i class="fa-solid fa-check-circle text-green-300 mr-3 mt-0.5 text-lg"></i>
+                                <div>
+                                    <strong class="text-base">ResNet-50:</strong>
+                                    <p class="text-white/80 mt-1">RGB分支骨干网络,提取多层次空间特征</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fa-solid fa-check-circle text-green-300 mr-3 mt-0.5 text-lg"></i>
+                                <div>
+                                    <strong class="text-base">S²FB:</strong>
+                                    <p class="text-white/80 mt-1">专属的高光谱空谱特征提取骨干,联合捕获空间-光谱信息</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fa-solid fa-arrows-spin text-green-300 mr-3 mt-0.5 text-lg"></i>
+                                <div>
+                                    <strong class="text-base">SAFM:</strong>
+                                    <p class="text-white/80 mt-1">跨模态光谱注意力融合模块,实现双流向信息交互</p>
+                                </div>
+                            </li>
+                        </ul>
+                        
+                        <div class="mt-6 p-4 bg-white/10 rounded-lg backdrop-blur-sm">
+                            <p class="text-xs text-white/90">
+                                <i class="fa-solid fa-info-circle mr-2"></i>
+                                创新点:不同于简单的特征拼接,SAFM通过全局平均池化和1D卷积生成通道权重,动态调整各模态贡献度
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="hidden lg:flex items-center text-slate-300 text-3xl">
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </div>
+                    <div class="lg:hidden text-slate-300 text-3xl my-2 text-center">
+                        <i class="fa-solid fa-arrow-down"></i>
+                    </div>
+
+                    <div class="flex flex-col gap-4 w-full lg:w-1/5">
+                        <div class="bg-white p-5 rounded-xl shadow-md text-center border border-slate-200 hover-lift">
+                            <h4 class="font-bold text-lg text-slate-700 mb-2">传统预测头</h4>
+                            <p class="text-sm text-slate-600">计算分类与定位图</p>
+                        </div>
+                        <div class="bg-gradient-to-r from-emerald-100 to-teal-100 p-5 rounded-xl shadow-md text-center border-2 border-emerald-300 hover-lift">
+                            <h4 class="font-bold text-lg text-emerald-800 mb-2">
+                                <i class="fa-solid fa-compass mr-2"></i>SAAM 模块
+                            </h4>
+                            <p class="text-sm text-emerald-700">计算光谱角感知图</p>
+                        </div>
+                        <div class="bg-slate-800 text-white p-4 rounded-xl shadow-md text-center font-bold mt-2 hover-lift">
+                            <i class="fa-solid fa-bullseye text-red-400 mr-2"></i>
+                            加权预测输出
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Core Modules -->
+    <section id="modules" class="py-20 bg-white relative">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12 fade-in-up">
+                <h2 class="text-3xl md:text-4xl font-bold text-dark mb-4">深入核心:三大创新模块</h2>
+                <p class="text-slate-600 text-lg">点击下方模块面板,查看每个算法组件的具体技术细节与作用</p>
+                <div class="w-24 h-1.5 bg-gradient-to-r from-primary to-secondary mx-auto rounded-full mt-6"></div>
+            </div>
+
+            <div class="space-y-4 fade-in-up">
+                
+                <!-- Module 1: S2FB -->
+                <div class="border-2 border-slate-200 rounded-2xl overflow-hidden bg-slate-50 hover:border-primary transition-all duration-300 hover-lift">
+                    <button class="accordion-btn w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none" onclick="toggleAccordion('acc1', this)">
+                        <span class="text-lg font-bold text-primary"><i class="fa-solid fa-network-wired text-secondary w-8"></i> S²FB: 空间-光谱特征骨干网络</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 transition-transform duration-300 transform accordion-icon"></i>
+                    </button>
+                    <div id="acc1" class="accordion-content px-6 pb-0">
+                        <div class="pb-5 pt-2 border-t border-slate-200">
+                            <p class="text-slate-700 mb-4">
+                                <strong>痛点:</strong> 传统方法将高光谱转为3通道图像送入普通的 VGG 或 ResNet,丢失了深层波段相关性。<br>
+                                <strong>创新:</strong> S²FB (Spatial-Spectral Feature Backbone) 专为高光谱数据打造。它采用带有残差连接的<strong>空间光谱卷积块 (S²CB)</strong>,利用 2D 深度可分离卷积提取"空间纹理",同时利用 3D 卷积捕获"连续波段的光谱特征",从而获得联合的空间-光谱分层表示。
+                            </p>
+                            
+                            <div class="grid md:grid-cols-2 gap-4 mb-4">
+                                <div class="bg-blue-50 p-4 rounded-lg">
+                                    <h5 class="font-bold text-blue-800 mb-2"><i class="fa-solid fa-gear mr-2"></i>技术规格</h5>
+                                    <ul class="text-sm text-slate-700 space-y-1">
+                                        <li>• 输入维度: H×W×B (高度×宽度×波段数)</li>
+                                        <li>• 四阶段架构: Stage 1-4逐步提取多层次特征</li>
+                                        <li>• S²C层: 2D深度可分离卷积(空间) + 3D卷积(光谱)</li>
+                                        <li>• 输出分辨率: H/4 × W/4 × 8C (C=256)</li>
+                                    </ul>
+                                </div>
+                                <div class="bg-emerald-50 p-4 rounded-lg">
+                                    <h5 class="font-bold text-emerald-800 mb-2"><i class="fa-solid fa-lightbulb mr-2"></i>关键优势</h5>
+                                    <ul class="text-sm text-slate-700 space-y-1">
+                                        <li>• 滑动3D卷积核建立多个连续光谱带之间的上下文关系</li>
+                                        <li>• 捕获物质的光谱签名</li>
+                                        <li>• 生成联合的空谱分层表示</li>
+                                        <li>• 残差连接缓解梯度消失</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-blue-50 p-3 rounded text-sm text-blue-800 font-mono">
+                                效果验证:消融实验表明,结合残差结构的空间与光谱双分支,比单独提取提升了近 2% 的 AUC 精度。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Module 2: SAFM -->
+                <div class="border-2 border-slate-200 rounded-2xl overflow-hidden bg-slate-50 hover:border-primary transition-all duration-300 hover-lift">
+                    <button class="accordion-btn w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none" onclick="toggleAccordion('acc2', this)">
+                        <span class="text-lg font-bold text-primary"><i class="fa-solid fa-object-group text-secondary w-8"></i> SAFM: 光谱注意力融合模块</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 transition-transform duration-300 transform accordion-icon"></i>
+                    </button>
+                    <div id="acc2" class="accordion-content px-6 pb-0">
+                        <div class="pb-5 pt-2 border-t border-slate-200">
+                            <p class="text-slate-700 mb-4">
+                                <strong>机制:</strong> 高光谱特征和 RGB 特征提取出来后并非各自为战。SAFM 通过全局平均池化和 1D 卷积生成通道权重。<br>
+                                <strong>模态内与模态间:</strong> 模块不仅进行"模态内注意力"增强自身关键特征,还利用 Softmax 计算跨 RGB 和 HS 的"模态间注意力",使网络能动态地利用清晰的 RGB 视觉提示来补充高光谱分支缺失的纹理细节。
+                            </p>
+                            
+                            <div class="grid md:grid-cols-2 gap-4 mb-4">
+                                <div class="bg-indigo-50 p-4 rounded-lg">
+                                    <h5 class="font-bold text-indigo-800 mb-2"><i class="fa-solid fa-arrows-split-up-and-left mr-2"></i>模态内注意力</h5>
+                                    <p class="text-sm text-slate-700">通过1D卷积和Sigmoid激活函数,为每个通道的特征分配权重,增强重要光谱带的表达。</p>
+                                </div>
+                                <div class="bg-purple-50 p-4 rounded-lg">
+                                    <h5 class="font-bold text-purple-800 mb-2"><i class="fa-solid fa-link mr-2"></i>跨模态注意力</h5>
+                                    <p class="text-sm text-slate-700">拼接RGB和HS嵌入向量,使用Softmax生成动态注意力权重,捕捉模态间相关性。</p>
+                                </div>
+                            </div>
+                            
+                            <div class="math-formula mb-4">
+                                H_fused = H_intra_refined + H_inter_refined
+                            </div>
+                            
+                            <div class="flex gap-2">
+                                <span class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-medium">Cross-Modality</span>
+                                <span class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-medium">Self-Adaptive Weighting</span>
+                                <span class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-medium">Channel Attention</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Module 3: SAAM & SAAL -->
+                <div class="border-2 border-slate-200 rounded-2xl overflow-hidden bg-slate-50 hover:border-emerald-300 transition-all duration-300 hover-lift">
+                    <button class="accordion-btn w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none" onclick="toggleAccordion('acc3', this)">
+                        <span class="text-lg font-bold text-emerald-700"><i class="fa-solid fa-ruler-combined text-emerald-500 w-8"></i> SAAM: 光谱角感知模块 (核心灵魂)</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 transition-transform duration-300 transform accordion-icon"></i>
+                    </button>
+                    <div id="acc3" class="accordion-content px-6 pb-0">
+                        <div class="pb-5 pt-2 border-t border-slate-200">
+                            <p class="text-slate-700 mb-3">
+                                在深度学习的特征空间里,如何判断当前画面中哪一块是你要追踪的目标?<br>
+                                <strong>原理引入:</strong> 借鉴遥感领域的 <span class="highlight" data-tooltip="Spectral Angle Mapper: 通过测量两个光谱向量之间的角度来判断相似性">光谱角映射 (SAM)</span>,SAAM 将特征图投影到子空间中,计算模板特征向量与搜索区域特征向量之间的 <strong>余弦相似度(夹角)</strong>。
+                            </p>
+                            
+                            <div class="math-formula mb-4">
+                                cos θ(i,j) = &lt;f(z)(i,j,:), f(x)(i,j,:)&gt; / (||f(z)|| · ||f(x)||)
+                            </div>
+                            <p class="text-xs text-slate-600 mb-4 italic">其中 z 和 x 分别代表HS模态的模板图像(TI)和搜索图像(SI)</p>
+                            
+                            <ul class="list-disc pl-5 text-slate-700 space-y-2 mb-4">
+                                <li><strong>目标相似(正样本):</strong> 夹角小,余弦值大 → 高置信度</li>
+                                <li><strong>背景干扰(负样本):</strong> 夹角大,余弦值小 → 低置信度</li>
+                            </ul>
+                            
+                            <div class="bg-amber-50 p-4 rounded-lg mb-4">
+                                <h5 class="font-bold text-amber-800 mb-2"><i class="fa-solid fa-graduation-cap mr-2"></i>SAAL 损失函数</h5>
+                                <p class="text-sm text-slate-700 mb-2">作者引入了一种三元组损失 (Triplet Loss) 思想,专门设计了 SAAL,强迫网络在训练时<strong>缩小</strong>目标与正样本特征之间的光谱夹角,<strong>扩大</strong>与负样本(背景伪装)之间的夹角。</p>
+                                <div class="math-formula text-sm">
+                                    L_SAAL = Σ [Sim(a,p) - Sim(a,n)]
+                                </div>
+                                <p class="text-xs text-slate-600 mt-2">p ∈ E₁ (正样本区域), n ∉ E₂ (负样本区域)</p>
+                            </div>
+                            
+                            <div class="bg-emerald-50 p-3 rounded border border-emerald-100 text-sm text-emerald-800 font-bold flex items-center justify-between">
+                                <span>效果:这就是 SSF-Net 能在视觉相似物体的遮挡、伪装下不跟丢的"杀手锏"。</span>
+                                <i class="fa-solid fa-eye text-xl opacity-50"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- Experiments -->
+    <section id="experiments" class="py-20 bg-slate-50 border-t border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16 fade-in-up">
+                <h2 class="text-3xl md:text-4xl font-bold text-dark mb-4">实验数据验证 (SOTA 表现)</h2>
+                <p class="text-slate-600 max-w-3xl mx-auto text-lg">SSF-Net 在 HOTC-2020、HOTC-2024 以及 BihoT (伪装物体) 等多个主流高光谱数据集上均取得了超越现有方法 (State-of-the-Art) 的优异成绩。</p>
+                <div class="w-24 h-1.5 bg-gradient-to-r from-primary to-secondary mx-auto rounded-full mt-6"></div>
+            </div>
+
+            <!-- Datasets Info Cards -->
+            <div class="grid md:grid-cols-3 gap-6 mb-12 fade-in-up">
+                <div class="glass-card p-6 rounded-2xl hover-lift">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+                            <i class="fa-solid fa-database text-blue-600 text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-dark">HOTC-2020</h3>
+                    </div>
+                    <ul class="space-y-2 text-sm text-slate-700">
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>训练集: 40个视频</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>测试集: 35个视频</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>16个光谱波段</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>11种挑战性因素</li>
+                    </ul>
+                </div>
+
+                <div class="glass-card p-6 rounded-2xl hover-lift">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
+                            <i class="fa-solid fa-flask text-purple-600 text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-dark">HOTC-2024-RedNIR</h3>
+                    </div>
+                    <ul class="space-y-2 text-sm text-slate-700">
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>训练集: 218个视频</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>验证集: 118个视频</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>15个光谱波段</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>最新基准数据集</li>
+                    </ul>
+                </div>
+
+                <div class="glass-card p-6 rounded-2xl hover-lift border-2 border-emerald-200">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                            <i class="fa-solid fa-star text-emerald-600 text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-dark">BihoT</h3>
+                    </div>
+                    <ul class="space-y-2 text-sm text-slate-700">
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>首个伪装目标跟踪数据集</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>41,912张图像</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>25个近红外波段</li>
+                        <li><i class="fa-solid fa-check text-green-500 mr-2"></i>9种属性标注</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="grid lg:grid-cols-2 gap-10">
+                <!-- Chart 1: HOTC-2020 Performance -->
+                <div class="glass-card p-6 rounded-2xl fade-in-up">
+                    <h3 class="text-lg font-bold text-center text-slate-800 mb-4">HOTC-2020 追踪性能对比</h3>
+                    <div class="relative h-72">
+                        <canvas id="chartHotc2020"></canvas>
+                    </div>
+                    <p class="text-xs text-center text-slate-500 mt-4">数据来源:论文 Table I。评价指标:AUC(成功率曲线下面积)和 DP_20(20像素阈值精确率)。</p>
+                </div>
+
+                <!-- Chart 2: BihoT Dataset -->
+                <div class="glass-card p-6 rounded-2xl fade-in-up" style="transition-delay: 0.2s;">
+                    <h3 class="text-lg font-bold text-center text-slate-800 mb-4">BihoT (高光谱伪装物体) 数据集测试</h3>
+                    <div class="relative h-72">
+                        <canvas id="chartBihot"></canvas>
+                    </div>
+                    <p class="text-xs text-center text-slate-500 mt-4">面对高难度伪装物体,搭载了 SAAM 的 SSF-Net 实现了断崖式的性能领先。</p>
+                </div>
+            </div>
+
+            <!-- Ablation Study Table -->
+            <div class="mt-12 glass-card p-8 rounded-2xl fade-in-up">
+                <h3 class="text-xl font-bold text-dark mb-6 flex items-center">
+                    <i class="fa-solid fa-microscope text-primary mr-3"></i>
+                    消融实验结果 (Ablation Study)
+                </h3>
+                
+                <div class="overflow-x-auto">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>配置</th>
+                                <th>AUC (HOTC-2020)</th>
+                                <th>Δ AUC</th>
+                                <th>DP₂₀</th>
+                                <th>Δ DP₂₀</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="font-medium">B (Baseline)</td>
+                                <td>0.661</td>
+                                <td>-</td>
+                                <td>0.924</td>
+                                <td>-</td>
+                            </tr>
+                            <tr class="highlighted">
+                                <td class="font-medium">+ S²FB</td>
+                                <td>0.673</td>
+                                <td class="text-green-600 font-semibold">+0.012</td>
+                                <td>0.932</td>
+                                <td class="text-green-600 font-semibold">+0.008</td>
+                            </tr>
+                            <tr class="highlighted">
+                                <td class="font-medium">+ SAFM</td>
+                                <td>0.675</td>
+                                <td class="text-green-600 font-semibold">+0.014</td>
+                                <td>0.934</td>
+                                <td class="text-green-600 font-semibold">+0.010</td>
+                            </tr>
+                            <tr class="highlighted" style="background-color: #EEF2FF; font-weight: 700;">
+                                <td class="font-bold text-primary">+ SAAM (完整模型)</td>
+                                <td class="font-bold text-primary">0.680</td>
+                                <td class="text-green-600 font-bold">+0.019</td>
+                                <td class="font-bold text-primary">0.939</td>
+                                <td class="text-green-600 font-bold">+0.015</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="mt-6 grid md:grid-cols-3 gap-4">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <p class="text-sm text-slate-700">
+                            <strong class="text-blue-800"><i class="fa-solid fa-arrow-trend-up mr-2"></i>S²FB贡献:</strong><br>
+                            相比基线提升1.2% AUC,证明专用HS特征提取的有效性
+                        </p>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <p class="text-sm text-slate-700">
+                            <strong class="text-purple-800"><i class="fa-solid fa-arrows-spin mr-2"></i>SAFM贡献:</strong><br>
+                            进一步改善模态融合,体现跨模态注意力的价值
+                        </p>
+                    </div>
+                    <div class="bg-emerald-50 p-4 rounded-lg">
+                        <p class="text-sm text-slate-700">
+                            <strong class="text-emerald-800"><i class="fa-solid fa-trophy mr-2"></i>SAAM贡献:</strong><br>
+                            最大增益来源(+0.5%),证实光谱角感知对精确定位的关键作用
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attribute Analysis -->
+            <div class="mt-12 bg-white p-8 rounded-2xl shadow-sm border border-slate-100 fade-in-up text-center">
+                <h3 class="text-xl font-bold text-primary mb-6">复杂属性 (Attributes) 突破</h3>
+                <div class="flex flex-wrap justify-center gap-4 mb-6">
+                    <div class="attribute-tag">
+                        <i class="fa-solid fa-compress"></i>
+                        背景杂乱 (BC)
+                    </div>
+                    <div class="attribute-tag">
+                        <i class="fa-solid fa-shapes"></i>
+                        形变 (DEF)
+                    </div>
+                    <div class="attribute-tag">
+                        <i class="fa-solid fa-person-running"></i>
+                        快速移动 (FM)
+                    </div>
+                    <div class="attribute-tag">
+                        <i class="fa-solid fa-lightbulb"></i>
+                        光照变化 (IV)
+                    </div>
+                    <div class="attribute-tag">
+                        <i class="fa-solid fa-eye-slash"></i>
+                        遮挡 (OCC)
+                    </div>
+                    <div class="attribute-tag">
+                        <i class="fa-solid fa-image"></i>
+                        低分辨率 (LR)
+                    </div>
+                    <div class="attribute-tag" style="background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%); color: #065F46; border-color: #6EE7B7; font-weight: 600;">
+                        <i class="fa-solid fa-ghost"></i>
+                        相似物干扰 (最强优势)
+                    </div>
+                </div>
+                <p class="text-sm text-slate-600 max-w-3xl mx-auto">由于融合了光谱材质特征并使用了光谱角度感知,在 11 项挑战场景测试中,SSF-Net 在 10 项中排名前二。</p>
+            </div>
+
+            <!-- Efficiency Comparison -->
+            <div class="mt-12 glass-card p-8 rounded-2xl fade-in-up">
+                <h3 class="text-xl font-bold text-dark mb-6 flex items-center">
+                    <i class="fa-solid fa-gauge-high text-accent mr-3"></i>
+                    运行效率对比 (HOTC-2024-RedNIR)
+                </h3>
+                
+                <div class="overflow-x-auto">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>方法</th>
+                                <th>FLOPs</th>
+                                <th>FPS</th>
+                                <th>评价</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="font-medium">SEE-Net</td>
+                                <td>297.99G</td>
+                                <td>12.06</td>
+                                <td class="text-slate-600 text-sm">计算复杂度高</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium">SENSE</td>
+                                <td>287.74G</td>
+                                <td>11.55</td>
+                                <td class="text-slate-600 text-sm">多假彩色图像推理</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium">MMF-Net</td>
+                                <td>656.67G</td>
+                                <td>3.75</td>
+                                <td class="text-slate-600 text-sm">需要光谱解混预处理</td>
+                            </tr>
+                            <tr class="highlighted" style="background-color: #ECFDF5; font-weight: 700;">
+                                <td class="font-bold text-emerald-700">SSF-Net (Ours)</td>
+                                <td class="font-bold text-emerald-700">83.37G</td>
+                                <td class="font-bold text-emerald-700">13.05</td>
+                                <td class="text-emerald-700 font-semibold text-sm"><i class="fa-solid fa-check-circle mr-1"></i>高效且高性能 ✓</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="mt-4 text-sm text-slate-600 text-center">SSF-Net在保证最高跟踪精度的同时,实现了最低的计算复杂度和最高的推理速度。</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Conclusion -->
+    <section id="conclusion" class="py-20 bg-white">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12 fade-in-up">
+                <h2 class="text-3xl md:text-4xl font-bold text-dark mb-4">总结与展望</h2>
+                <div class="w-24 h-1.5 bg-gradient-to-r from-primary to-secondary mx-auto rounded-full"></div>
+            </div>
+            
+            <div class="space-y-8 fade-in-up">
+                <!-- Summary Box -->
+                <div class="glass-card p-8 rounded-2xl">
+                    <h3 class="text-xl font-bold text-primary mb-4 flex items-center">
+                        <i class="fa-solid fa-clipboard-check mr-3"></i>
+                        研究总结
+                    </h3>
+                    <p class="text-slate-700 mb-4 leading-relaxed">
+                        本文提出了<strong>SSF-Net</strong>,一个创新的空谱融合网络,用于高光谱目标跟踪。通过三个核心模块的协同工作:
+                    </p>
+                    <ul class="space-y-3 text-slate-700 mb-4">
+                        <li class="flex items-start">
+                            <i class="fa-solid fa-circle-check text-primary mt-1 mr-3"></i>
+                            <span><strong>S²FB</strong> - 专用的空间光谱特征提取骨干网络</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fa-solid fa-circle-check text-primary mt-1 mr-3"></i>
+                            <span><strong>SAFM</strong> - 智能的双模态注意力融合机制</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fa-solid fa-circle-check text-primary mt-1 mr-3"></i>
+                            <span><strong>SAAM + SAAL</strong> - 基于光谱角的精确目标定位</span>
+                        </li>
+                    </ul>
+                    <p class="text-slate-700 leading-relaxed">
+                        SSF-Net在多个基准数据集上取得了最先进的性能,同时在计算效率方面表现出色。
+                    </p>
+                </div>
+
+                <!-- Future Work -->
+                <div class="bg-gradient-to-br from-indigo-50 to-violet-50 p-8 rounded-2xl border-2 border-indigo-100">
+                    <h3 class="text-xl font-bold text-primary mb-6 flex items-center">
+                        <i class="fa-solid fa-rocket mr-3"></i>
+                        未来方向
+                    </h3>
+                    <div class="grid md:grid-cols-3 gap-6">
+                        <div class="bg-white p-5 rounded-xl shadow-sm">
+                            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center mb-3">
+                                <i class="fa-solid fa-expand text-blue-600 text-xl"></i>
+                            </div>
+                            <h4 class="font-bold text-dark mb-2">扩展应用场景</h4>
+                            <p class="text-sm text-slate-600">应用于更多高光谱视觉任务,如检测、分割等</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-xl shadow-sm">
+                            <div class="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center mb-3">
+                                <i class="fa-solid fa-feather text-emerald-600 text-xl"></i>
+                            </div>
+                            <h4 class="font-bold text-dark mb-2">轻量化部署</h4>
+                            <p class="text-sm text-slate-600">进一步优化模型复杂度,实现实时边缘设备部署</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-xl shadow-sm">
+                            <div class="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center mb-3">
+                                <i class="fa-solid fa-network-wired text-purple-600 text-xl"></i>
+                            </div>
+                            <h4 class="font-bold text-dark mb-2">多模态融合</h4>
+                            <p class="text-sm text-slate-600">探索与其他传感器(热红外、LiDAR)的深度融合</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resources -->
+                <div class="glass-card p-8 rounded-2xl">
+                    <h3 class="text-xl font-bold text-primary mb-6 flex items-center">
+                        <i class="fa-solid fa-book-open mr-3"></i>
+                        资源链接
+                    </h3>
+                    <div class="grid md:grid-cols-3 gap-4">
+                        <a href="#" class="flex items-center gap-3 p-4 bg-white rounded-xl border border-slate-200 hover:border-primary hover:shadow-md transition-all duration-300 group">
+                            <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition">
+                                <i class="fa-solid fa-file-pdf text-blue-600"></i>
+                            </div>
+                            <div>
+                                <p class="font-medium text-dark text-sm">论文原文</p>
+                                <p class="text-xs text-slate-500">arXiv预印本</p>
+                            </div>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 p-4 bg-white rounded-xl border border-slate-200 hover:border-primary hover:shadow-md transition-all duration-300 group">
+                            <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition">
+                                <i class="fa-brands fa-github text-gray-700"></i>
+                            </div>
+                            <div>
+                                <p class="font-medium text-dark text-sm">源代码</p>
+                                <p class="text-xs text-slate-500">GitHub仓库</p>
+                            </div>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 p-4 bg-white rounded-xl border border-slate-200 hover:border-primary hover:shadow-md transition-all duration-300 group">
+                            <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition">
+                                <i class="fa-solid fa-database text-green-600"></i>
+                            </div>
+                            <div>
+                                <p class="font-medium text-dark text-sm">数据集下载</p>
+                                <p class="text-xs text-slate-500">HOTC & BihoT</p>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-white py-12">
+        <div class="max-w-5xl mx-auto px-4 text-center">
+            <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center mx-auto mb-6">
+                <i class="fa-solid fa-satellite text-white text-3xl"></i>
+            </div>
+            <h2 class="text-2xl font-bold mb-4">感谢阅读</h2>
+            <p class="text-slate-400 leading-relaxed mb-8 max-w-3xl mx-auto">
+                这篇文献提供了一种全新的多模态目标跟踪范式。它告诉我们,高光谱不仅仅是"波段更多"的图像,更是判断物体"真伪"的化学图谱。结合 S²FB、SAFM 和巧妙的光谱角计算 (SAAM),未来的自动驾驶、安防监控在复杂环境中将拥有一双真正"火眼金睛"。
+            </p>
+            <div class="pt-8 border-t border-slate-700 text-sm text-slate-500">
+                <p>Interactive Explainer Generated based on: "SSF-Net: Spatial-Spectral Fusion Network with Spectral Angle Awareness for Hyperspectral Object Tracking"</p>
+                <p class="mt-2">Presented by AI Assistant · arXiv:2403.05852v2 [cs.CV]</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript 交互脚本 -->
+    <script>
+        // 1. 移动端菜单切换
+        const btn = document.getElementById('mobile-menu-btn');
+        const menu = document.getElementById('mobile-menu');
+        btn.addEventListener('click', () => {
+            menu.classList.toggle('hidden');
+        });
+
+        // 2. 导航栏粘性样式
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 20) {
+                navbar.classList.add('shadow-md');
+            } else {
+                navbar.classList.remove('shadow-md');
+            }
+        });
+
+        // 3. 手风琴展开/折叠逻辑
+        function toggleAccordion(id, element) {
+            const content = document.getElementById(id);
+            const icon = element.querySelector('.accordion-icon');
+            
+            // 关闭所有其他面板
+            document.querySelectorAll('.accordion-content').forEach(el => {
+                if (el.id !== id) {
+                    el.classList.remove('open');
+                }
+            });
+            document.querySelectorAll('.accordion-icon').forEach(el => {
+                if (el !== icon) {
+                    el.classList.remove('rotate');
+                }
+            });
+            
+            // 切换当前面板
+            if (content.classList.contains('open')) {
+                content.classList.remove('open');
+                icon.classList.remove('rotate');
+            } else {
+                content.classList.add('open');
+                icon.classList.add('rotate');
+            }
+        }
+        
+        // 默认打开第一个手风琴面板
+        setTimeout(() => {
+            const firstAccBtn = document.querySelector('.accordion-btn');
+            if(firstAccBtn) firstAccBtn.click();
+        }, 500);
+
+        // 4. 滚动显现动画 (Intersection Observer)
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.15
+        };
+
+        const observer = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.fade-in-up').forEach(element => {
+            observer.observe(element);
+        });
+
+        // 5. Chart.js 图表初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            Chart.defaults.font.family = "'Noto Sans SC', sans-serif";
+            Chart.defaults.color = '#64748b';
+
+            // Chart 1: HOTC-2020 Data
+            const ctx1 = document.getElementById('chartHotc2020');
+            if (ctx1) {
+                new Chart(ctx1.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['BAE-Net', 'SST-Net', 'SEE-Net', 'SPIRIT', 'SSF-Net (Ours)'],
+                        datasets: [
+                            {
+                                label: 'AUC (成功率)',
+                                data: [0.606, 0.623, 0.654, 0.679, 0.680],
+                                backgroundColor: 'rgba(79, 70, 229, 0.8)',
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'DP₂₀ (精确度)',
+                                data: [0.878, 0.917, 0.907, 0.925, 0.939],
+                                backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                                borderRadius: 4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { min: 0.5, max: 1.0 }
+                        },
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            }
+
+            // Chart 2: BihoT Data
+            const ctx2 = document.getElementById('chartBihot');
+            if (ctx2) {
+                new Chart(ctx2.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['SEE-Net', 'SiamHYPER', 'SENSE', 'MMF-Net', 'SSF-Net (Ours)'],
+                        datasets: [
+                            {
+                                label: 'AUC (成功率)',
+                                data: [0.315, 0.403, 0.454, 0.475, 0.497],
+                                backgroundColor: 'rgba(124, 58, 237, 0.8)',
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'DP₂₀ (精确度)',
+                                data: [0.422, 0.539, 0.576, 0.580, 0.668],
+                                backgroundColor: 'rgba(244, 63, 94, 0.8)',
+                                borderRadius: 4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { min: 0.2, max: 0.7 }
+                        },
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
